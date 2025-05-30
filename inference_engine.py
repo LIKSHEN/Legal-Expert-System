@@ -22,7 +22,7 @@ class InferenceEngine:
         Perform forward chaining inference
         Starting from known facts, derive new conclusions
         """
-        pass
+        
 
     def backward_chain(self, goal):
         """
