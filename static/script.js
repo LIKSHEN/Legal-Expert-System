@@ -1,112 +1,154 @@
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', function() {
+    console.log("Chat script initializing...");
+
+    // --- 1. GET ELEMENTS & CSRF TOKEN ---
     const chatMessages = document.getElementById('chatMessages');
     const userInput = document.getElementById('userInput');
     const sendButton = document.getElementById('sendButton');
     const clearChatButton = document.getElementById('clearChatButton');
+    const csrftoken = document.querySelector('[name=csrfmiddlewaretoken]')?.value;
 
-    // Function to get current time for timestamp
+    // --- Sanity checks ---
+    if (!chatMessages || !userInput || !sendButton || !clearChatButton) {
+        console.error("Critical Error: A required chat element is missing from the page.");
+        return;
+    }
+    if (!csrftoken) {
+        console.error("Critical Error: CSRF token not found. Cannot send messages.");
+        return;
+    }
+    console.log("All chat elements and CSRF token found.");
+
+    // --- 2. STATE MANAGEMENT ---
+    let messageHistory = [];
+
+    // --- 3. HELPER FUNCTIONS ---
     function getCurrentTime() {
         return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
 
-    // Function to add a message to the chat
     function addMessage(text, type = 'system', isLoading = false) {
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${type}`;
 
         const iconDiv = document.createElement('div');
         iconDiv.className = 'message-icon';
-        const icon = document.createElement('i');
-        icon.className = `fas ${type === 'user' ? 'fa-user-tie' : 'fa-robot'}`;
-        iconDiv.appendChild(icon);
+        iconDiv.innerHTML = `<i class="fas ${type === 'user' ? 'fa-user' : 'fa-user-tie'}"></i>`;
 
         const contentDiv = document.createElement('div');
         contentDiv.className = 'message-content';
         
         if (isLoading) {
-            const loadingDots = document.createElement('div');
-            loadingDots.className = 'loading-dots';
-            for (let i = 0; i < 3; i++) {
-                loadingDots.appendChild(document.createElement('span'));
-            }
-            contentDiv.appendChild(loadingDots);
+            contentDiv.innerHTML = '<div class="loading-dots"><span></span><span></span><span></span></div>';
         } else {
+            let mainText = text;
+            const sources = [];
+            
+            // Use matchAll to find all source citations, which handles multiple sources robustly.
+            const sourceRegex = /Source:\s*`([\s\S]+?)`/g;
+            const matches = Array.from(text.matchAll(sourceRegex));
+
+            if (matches.length > 0) {
+                // The main text is everything before the first source citation
+                mainText = text.substring(0, matches[0].index).trim();
+                
+                // Extract the source text from each match
+                matches.forEach(match => {
+                    sources.push(match[1]);
+                });
+            }
+
             const textP = document.createElement('p');
-            textP.textContent = text;
+            textP.textContent = mainText;
             contentDiv.appendChild(textP);
+
+            // If there are sources, create containers for them
+            if (sources.length > 0) {
+                sources.forEach(sourceText => {
+                    const sourceContainer = document.createElement('div');
+                    sourceContainer.className = 'source-container';
+                    sourceContainer.innerHTML = `<p class="source-title">Based on:</p><pre><code>${sourceText.trim()}</code></pre>`;
+                    contentDiv.appendChild(sourceContainer);
+                });
+            }
 
             const timestampSpan = document.createElement('span');
             timestampSpan.className = 'timestamp';
             timestampSpan.textContent = getCurrentTime();
             contentDiv.appendChild(timestampSpan);
+
+            // Add to history only if it's not a loading message
+            messageHistory.push({ isUser: type === 'user', text: text });
         }
 
         messageDiv.appendChild(iconDiv);
         messageDiv.appendChild(contentDiv);
         chatMessages.appendChild(messageDiv);
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-        return messageDiv; // Return the message element for potential updates (e.g., loading state)
+        chatMessages.scrollTop = chatMessages.scrollHeight; // Auto-scroll
+        return messageDiv;
     }
 
-    // Function to simulate API call and get bot response
+    // --- 4. API COMMUNICATION ---
     async function getBotResponse(userMessage) {
-        // Simulate API call delay
-        await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1000));
+        console.log("Sending to backend. History length:", messageHistory.length);
+        try {
+            const response = await fetch('/api/chat/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrftoken
+                },
+                body: JSON.stringify({
+                    message: userMessage,
+                    chat_history: messageHistory.slice(0, -1) // Send history *before* the current user message
+                })
+            });
 
-        // In a real application, this would be a fetch call to your Django backend
-        // For now, a simple rule-based mock response
-        if (userMessage.toLowerCase().includes('hello') || userMessage.toLowerCase().includes('hi')) {
-            return "Hello there! How can I assist you with legal matters today?";
-        } else if (userMessage.toLowerCase().includes('contract')) {
-            return "Certainly. Contract law can be complex. Could you specify what aspect of contract law you're interested in? For example, formation, breach, or specific clauses?";
-        } else if (userMessage.toLowerCase().includes('divorce')) {
-            return "I understand. Matters of family law like divorce require careful consideration. While I can provide general information, it's best to consult with a qualified legal professional for advice specific to your situation.";
-        } else if (userMessage.toLowerCase().includes('thank')) {
-            return "You're welcome! Feel free to ask if you have more questions.";
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Server returned an error: ${response.status} - ${errorText}`);
+            }
+
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.error || 'Server indicated failure but sent no error message.');
+            }
+            return data.response;
+        } catch (error) {
+            console.error("Error fetching bot response:", error);
+            throw error; // Propagate error to be handled by the caller
         }
-        return "I'm here to help with general legal information. Please phrase your query clearly.";
     }
 
-    // Function to handle sending messages
+    // --- 5. CORE LOGIC ---
     async function handleSendMessage() {
         const messageText = userInput.value.trim();
         if (!messageText) return;
 
+        // Add user message to UI and history
         addMessage(messageText, 'user');
+        const currentUserMessage = messageText; // store before clearing
         userInput.value = '';
-        userInput.style.height = 'auto'; // Reset height
+        userInput.style.height = 'auto';
 
+        // Show loading indicator
         const loadingMessageElement = addMessage('', 'system', true);
 
         try {
-            // const response = await fetch('/api/query', { // Your actual API endpoint
-            //     method: 'POST',
-            //     headers: {
-            //         'Content-Type': 'application/json',
-            //         'X-CSRFToken': getCookie('csrftoken') // Important for Django POST requests
-            //     },
-            //     body: JSON.stringify({ query: messageText })
-            // });
-            // if (!response.ok) {
-            //     throw new Error('Network response was not ok');
-            // }
-            // const data = await response.json();
-            // const botResponse = data.response; 
-
-            const botResponse = await getBotResponse(messageText); // Using mocked response
-            
-            // Update loading message with actual response
-            loadingMessageElement.remove(); // Remove the loading dots message
+            const botResponse = await getBotResponse(currentUserMessage);
             addMessage(botResponse, 'system');
-
         } catch (error) {
+            // The error is already logged by getBotResponse
+            addMessage("I am having trouble connecting to my knowledge base right now. Please try again in a moment.", 'system');
+        } finally {
+            // Always remove the loading indicator
             loadingMessageElement.remove();
-            addMessage("I apologize, but I'm having trouble connecting to the legal knowledge base. Please try again later.", 'system');
-            console.error('Error:', error);
+            // Remove the loading message from history
+            messageHistory.pop();
         }
     }
 
-    // Event listeners
+    // --- 6. EVENT LISTENERS ---
     sendButton.addEventListener('click', handleSendMessage);
     userInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -116,32 +158,17 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     clearChatButton.addEventListener('click', () => {
-        chatMessages.innerHTML = ''; // Clear messages
-        addMessage("Chat cleared. How can I assist you further?", 'system'); // Add a system message
+        chatMessages.innerHTML = '';
+        messageHistory = [];
+        addMessage("Chat cleared. How can I help you?", 'system');
     });
 
-    // Auto-resize textarea
     userInput.addEventListener('input', () => {
         userInput.style.height = 'auto';
-        userInput.style.height = Math.min(userInput.scrollHeight, 120) + 'px'; // Max height 120px
+        userInput.style.height = Math.min(userInput.scrollHeight, 120) + 'px';
     });
 
-    // Function to get CSRF token (important for Django POST requests if you implement the backend)
-    // function getCookie(name) {
-    //     let cookieValue = null;
-    //     if (document.cookie && document.cookie !== '') {
-    //         const cookies = document.cookie.split(';');
-    //         for (let i = 0; i < cookies.length; i++) {
-    //             const cookie = cookies[i].trim();
-    //             if (cookie.substring(0, name.length + 1) === (name + '=')) {
-    //                 cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-    //                 break;
-    //             }
-    //         }
-    //     }
-    //     return cookieValue;
-    // }
-
-    // Initial welcome message focus
+    // --- 7. INITIALIZATION ---
     userInput.focus();
+    console.log("Chat script fully initialized and ready.");
 }); 
