@@ -1,0 +1,128 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Knowledge Base - Lawyalty</title>
+    <link rel="stylesheet" href="{% static 'styles.css' %}">
+    <link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;600;700&family=Open+Sans:wght@300;400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link rel="stylesheet" href="{% static 'knowledge_base.css' %}">
+</head>
+<body>
+    <div class="chat-app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <i class="fas fa-gavel"></i>
+                <div>
+                    <h2>Lawyalty</h2>
+                    <p class="description">Your Legal Expert System</p>
+                </div>
+            </div>
+            <nav class="sidebar-nav">
+                <ul>
+                    <li><a href="{% url 'home' %}"><i class="fas fa-comments"></i> Chat</a></li>
+                    <li class="active"><a href="{% url 'knowledge_base' %}"><i class="fas fa-book-open"></i> Knowledge Base</a></li>
+                    <li><a href="#"><i class="fas fa-history"></i> History</a></li>
+                    <li><a href="#"><i class="fas fa-cog"></i> Settings</a></li>
+                </ul>
+            </nav>
+            <div class="sidebar-footer">
+                <p>&copy; 2024 Lawyalty</p>
+            </div>
+        </aside>
+        <main class="knowledge-base-interface">
+            <header class="kb-header">
+                <h1>Knowledge Base</h1>
+                <div class="header-actions">
+                    <div class="file-upload-container">
+                        <input type="file" id="prologFileInput" accept=".pl" style="display: none;">
+                        <button id="uploadButton" title="Upload Prolog File">
+                            <i class="fas fa-upload"></i> Upload Prolog File
+                        </button>
+                    </div>
+                </div>
+            </header>
+            <div class="kb-content">
+                <div class="kb-sections">
+                    {% for section, data in facts_and_rules.sections.items %}
+                    <div class="kb-section">
+                        <h2>{{ section }}</h2>
+                        {% if data.facts %}
+                        <div class="kb-subsection">
+                            <h3>Facts</h3>
+                            <ul>
+                                {% for fact in data.facts %}
+                                <li>{{ fact }}</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                        {% endif %}
+                        {% if data.rules %}
+                        <div class="kb-subsection">
+                            <h3>Rules</h3>
+                            <ul>
+                                {% for rule in data.rules %}
+                                <li>{{ rule }}</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </main>
+    </div>
+    <script>
+        document.getElementById('uploadButton').addEventListener('click', function() {
+            document.getElementById('prologFileInput').click();
+        });
+
+        document.getElementById('prologFileInput').addEventListener('change', function(e) {
+            if (e.target.files.length > 0) {
+                const file = e.target.files[0];
+                if (file.name.endsWith('.pl')) {
+                    const formData = new FormData();
+                    formData.append('prolog_file', file);
+
+                    fetch('/knowledge-base/', {
+                        method: 'POST',
+                        body: formData,
+                        headers: {
+                            'X-CSRFToken': getCookie('csrftoken')
+                        }
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        location.reload();
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('Error uploading file. Please try again.');
+                    });
+                } else {
+                    alert('Please upload a valid Prolog file (.pl extension)');
+                }
+            }
+        });
+
+        // Function to get CSRF token from cookies
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+    </script>
+</body>
+</html> 

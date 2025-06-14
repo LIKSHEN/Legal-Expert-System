@@ -21,4 +21,6 @@ from . import views
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', views.home, name='home'), 
+    path('knowledge-base/', views.knowledge_base, name='knowledge_base'),
+    path('api/chat/', views.chat_with_gemini, name='chat_with_gemini'),
 ]
