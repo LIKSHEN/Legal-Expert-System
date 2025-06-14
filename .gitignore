@@ -19,3 +19,5 @@ ENV/
 # Misc
 *.log
 .DS_Store 
+
+db.sqlite3
